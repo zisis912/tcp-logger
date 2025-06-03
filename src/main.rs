@@ -1,6 +1,8 @@
 use futures::FutureExt;
 use getopts::Options;
 use std::env;
+use std::fs::File;
+use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -103,6 +105,7 @@ async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), B
         read: &mut R,
         write: &mut W,
         mut abort: broadcast::Receiver<()>,
+        mut writer: Option<&mut File>,
     ) -> tokio::io::Result<usize>
     where
         R: tokio::io::AsyncRead + Unpin,
@@ -132,6 +135,10 @@ async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), B
                 break;
             }
 
+            if let Some(ref mut file) = writer {
+                file.write_all(&buf[0..bytes_read])?;
+            }
+
             // While we ignore some read errors above, any error writing data we've already read to
             // the other side is always treated as exceptional.
             write.write_all(&buf[0..bytes_read]).await?;
@@ -147,6 +154,20 @@ async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), B
         tokio::spawn(async move {
             println!("New connection from {}", client_addr);
 
+            let mut s2c_log = File::options()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open("output/S2C.bin")
+                .unwrap();
+
+            let mut c2s_log = File::options()
+                .write(true)
+                .truncate(true)
+                .create(true)
+                .open("output/C2S.bin")
+                .unwrap();
+
             // Establish connection to upstream for each incoming client connection
             let mut remote = match TcpStream::connect(remote).await {
                 Ok(result) => result,
@@ -160,9 +181,9 @@ async fn forward(bind_ip: &str, local_port: i32, remote: String) -> Result<(), B
 
             let (cancel, _) = broadcast::channel::<()>(1);
             let (remote_copied, client_copied) = tokio::join! {
-                copy_with_abort(&mut remote_read, &mut client_write, cancel.subscribe())
+                copy_with_abort(&mut remote_read, &mut client_write, cancel.subscribe(),Some(&mut s2c_log))
                     .then(|r| { let _ = cancel.send(()); async { r } }),
-                copy_with_abort(&mut client_read, &mut remote_write, cancel.subscribe())
+                copy_with_abort(&mut client_read, &mut remote_write, cancel.subscribe(),Some(&mut c2s_log))
                     .then(|r| { let _ = cancel.send(()); async { r } }),
             };
 
