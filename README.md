@@ -1,3 +1,11 @@
+Hello there!
+Do YOU want to log TCP socket traffic but can't find a single program that can do it? 
+
+I did, so I forked this proxy and made it do exactly that.
+This only logs traffic, no SYN, no ACK, no anything. It logs all the traffic to two binary files, one called S2C.bin and one called C2S.bin. Every new connection to the proxy fully overwrites these files btw.
+
+Thats all, just use the documentation below, all the logging is automatic
+
 # tcpproxy
 _a simple, cross-platform, multi-client TCP proxy_
 
